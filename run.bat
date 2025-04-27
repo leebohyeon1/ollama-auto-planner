@@ -67,7 +67,7 @@ if errorlevel 1 (
 )
 
 :: 매개변수 초기화
-set MODEL=mistral
+set MODEL=phi4
 set RUNTIME=6
 set OUTPUT=project.json
 set RESUME=
@@ -151,10 +151,12 @@ if defined DEBUG set "cmd=%cmd% %DEBUG%"
 %cmd%
 if errorlevel 1 (
     echo %RED%프로그램 실행 중 오류가 발생했습니다.%NC%
+    pause
 ) else (
     echo %GREEN%실행이 완료되었습니다.%NC%
     echo %YELLOW%결과 파일: %NC%output\%OUTPUT%
     echo %YELLOW%로그 파일: %NC%logs\ 디렉토리에서 확인할 수 있습니다.
+    pause
 )
 
 :: 가상 환경 비활성화
