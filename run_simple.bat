@@ -49,7 +49,7 @@ if errorlevel 1 (
 echo Ollama 서버가 실행 중입니다.
 
 :: 매개변수 초기화 (기본값)
-set MODEL=mistral
+set MODEL=phi4
 set RUNTIME=6
 set OUTPUT=project.json
 set RESUME=
@@ -90,4 +90,5 @@ goto :eof
 :error
 echo.
 echo 오류가 발생했습니다. 프로그램을 종료합니다.
+pause
 exit /b 1
