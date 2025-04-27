@@ -12,7 +12,7 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 
 # Ollama API 설정
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "phi4"  # 사용할 모델 (예: "llama3", "mistral", "mistral-openorca")
+MODEL_NAME = "phi4"  # 사용할 모델 (예: "llama3", "mistral", "phi4")
 
 # 실행 설정
 MAX_RUNTIME_HOURS = 6  # 최대 실행 시간 (시간)
