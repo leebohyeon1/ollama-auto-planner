@@ -18,7 +18,7 @@ mkdir output 2>nul
 mkdir logs 2>nul
 
 :: 직접 메인 스크립트 실행
-python main.py --model mistral --runtime 6 --output project.json
+python main.py --model phi4 --runtime 6 --output project.json
 
 :: 실행 종료
 echo 프로그램 실행이 완료되었습니다.
