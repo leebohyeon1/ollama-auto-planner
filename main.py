@@ -11,7 +11,7 @@ import json
 import logging
 import argparse
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 import config
 import utils
@@ -83,7 +83,7 @@ def setup_environment(args):
         config.MAX_RUNTIME_HOURS = args.runtime
         logger.info(f"실행 시간 변경: {config.MAX_RUNTIME_HOURS}시간")
 
-def create_prompt(planning_doc: str, conversation_history: utils.ConversationHistory, question: str) -> str:
+def create_prompt(planning_doc: str, conversation_history: utils.ConversationHistory, question: str, project: Project = None) -> str:
     """프롬프트를 생성합니다."""
     # 이전 대화 요약이 있으면 포함
     summary = ""
@@ -93,6 +93,21 @@ def create_prompt(planning_doc: str, conversation_history: utils.ConversationHis
     # 최근 대화 기록
     history = conversation_history.get_formatted_history()
     
+    # 현재까지 개발된 코드 정보
+    current_code_info = ""
+    if project and project.components:
+        current_code_info = "\n\n# 현재까지 개발된 코드 정보:\n"
+        for component in project.components:
+            current_code_info += f"\n## 모듈: {component.name}\n"
+            current_code_info += f"설명: {component.description}\n"
+            
+            for feature in component.features:
+                current_code_info += f"\n### 기능: {feature.name}\n"
+                current_code_info += f"설명: {feature.description}\n"
+                
+                # 코드 스니펫은 너무 길어질 수 있으므로 갯수만 표시
+                current_code_info += f"구현된 코드 스니펫 수: {len(feature.code_snippets)}\n"
+    
     # 최종 프롬프트
     prompt = f"""{config.SYSTEM_PROMPT}
 
@@ -100,18 +115,23 @@ def create_prompt(planning_doc: str, conversation_history: utils.ConversationHis
 {planning_doc}
 
 {summary}# 이전 대화 내용
-{history}
+{history}{current_code_info}
 
 # 현재 질문
 {question}
 
-자세하고 구체적인 답변을 제공해주세요. 코드 예시와 구현 방법을 포함해주세요.
+자세하고 구체적인 답변을 제공해주세요. 
+기획서에 명시되지 않았거나 모호한 부분은 합리적인 가정을 세우고 그 가정을 명확히 표시해주세요.
+코드 예시와 구현 방법을 포함해주세요.
 """
     
     return prompt
 
-def process_response(response: str, project: Project) -> Project:
+def process_response(response: str, project: Project) -> Tuple[Project, str]:
     """AI 응답을 처리하고 프로젝트 모델을 업데이트합니다."""
+    # 현재 모듈 식별 (응답에서 추출)
+    current_module = extract_current_module(response)
+    
     # 코드 스니펫 추출
     if config.EXTRACT_CODE_SNIPPETS:
         code_snippets = utils.extract_code_snippets(response)
@@ -121,27 +141,21 @@ def process_response(response: str, project: Project) -> Project:
             # CodeSnippet 객체 생성
             snippet = CodeSnippet(
                 language=snippet_data["language"],
-                code=snippet_data["code"]
+                code=snippet_data["code"],
+                description=f"Module: {current_module}" if current_module else None
             )
             
             # 파일로 저장
             if config.SAVE_INTERMEDIATE_RESULTS:
                 snippet.save_to_file(config.OUTPUT_DIR)
             
-            # 새 기능인지 확인하고 기능 추가 또는 업데이트
-            # (실제로는 더 복잡한 기능 추출 및 매칭 로직이 필요할 수 있음)
-            feature_name = f"Feature_{len(project.components[0].features) + 1}" if project.components else "Feature_1"
-            feature_desc = f"자동 생성된 기능 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            # 첫 번째 컴포넌트가 없으면 생성
-            if not project.components:
-                component = Component(
-                    name="Main Component",
-                    description="기획서에서 자동 생성된 메인 컴포넌트"
-                )
-                project.components.append(component)
+            # 모듈에 해당하는 컴포넌트가 있는지 확인
+            component = find_or_create_component(project, current_module)
             
             # 새 기능 생성 및 코드 스니펫 추가
+            feature_name = f"{current_module}_{len(component.features) + 1}" if current_module else f"Feature_{len(component.features) + 1}"
+            feature_desc = extract_feature_description(response) or f"자동 생성된 기능 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
             feature = Feature(
                 name=feature_name,
                 description=feature_desc
@@ -149,12 +163,55 @@ def process_response(response: str, project: Project) -> Project:
             feature.code_snippets.append(snippet)
             
             # 컴포넌트에 기능 추가
-            project.components[0].features.append(feature)
+            component.features.append(feature)
     
     # 프로젝트 updated_at 갱신
     project.updated_at = datetime.now()
     
-    return project
+    return project, current_module
+
+def find_or_create_component(project: Project, module_name: str) -> Component:
+    """모듈 이름에 해당하는 컴포넌트를 찾거나 생성합니다."""
+    if not module_name:
+        # 기본 컴포넌트 사용
+        if not project.components:
+            component = Component(
+                name="Main Component",
+                description="기획서에서 자동 생성된 메인 컴포넌트"
+            )
+            project.components.append(component)
+        return project.components[0]
+    
+    # 모듈 이름에 해당하는 컴포넌트 찾기
+    for component in project.components:
+        if component.name.lower() == module_name.lower():
+            return component
+    
+    # 없으면 새로 생성
+    component = Component(
+        name=module_name,
+        description=f"{module_name} 모듈"
+    )
+    project.components.append(component)
+    return component
+
+def extract_current_module(response: str) -> str:
+    """응답에서 현재 작업 중인 모듈 이름을 추출합니다."""
+    # 간단한 구현: "모듈: XXX" 패턴 찾기
+    import re
+    match = re.search(r"모듈:\s*([A-Za-z가-힣0-9_\s]+)", response)
+    if match:
+        return match.group(1).strip()
+    return None
+
+def extract_feature_description(response: str) -> str:
+    """응답에서 기능 설명을 추출합니다."""
+    # 간단한 구현: "기능 설명: XXX" 패턴 찾기
+    import re
+    match = re.search(r"기능 설명:\s*([^\n]+)", response)
+    if match:
+        return match.group(1).strip()
+    return None
 
 def main():
     """메인 실행 함수"""
@@ -226,10 +283,14 @@ def main():
     iteration = state.get("iteration", 1)
     
     try:
+        
         # 메인 루프
+        current_module = None
+
         while datetime.now() < end_time and iteration <= config.MAX_ITERATIONS:
             logger.info(f"\n--- 반복 #{iteration} ---")
             logger.info(f"현재 질문: {current_question}")
+            logger.info(f"현재 모듈: {current_module or '미정'}")
             
             # 프롬프트 생성
             prompt = create_prompt(planning_doc, conversation_history, current_question)
@@ -243,35 +304,18 @@ def main():
             conversation_history.add(current_question, response)
             
             # 응답 처리 및 프로젝트 업데이트
-            project = process_response(response, project)
-            
-            # 중간 결과 저장
-            if config.SAVE_INTERMEDIATE_RESULTS and iteration % config.INTERMEDIATE_SAVE_INTERVAL == 0:
-                project.save_to_json(os.path.join(config.OUTPUT_DIR, "project.json"))
-                logger.info("중간 프로젝트 저장됨")
-            
-            # 대화 기록 요약 (주기적으로)
-            if iteration % config.SUMMARIZE_INTERVAL == 0:
-                logger.info("대화 기록 요약 생성 중...")
-                conversation_history.summarize()
-                logger.info("요약 생성됨")
-            
-            # 대화 기록 저장
-            with open(config.CONVERSATION_LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(f"\n--- 반복 #{iteration} ---\n")
-                f.write(f"질문: {current_question}\n")
-                f.write(f"응답: {response}\n")
-                f.write("-" * 50 + "\n")
+            project, current_module = process_response(response, project)
             
             # 다음 질문 생성
             logger.info("다음 질문 생성 중...")
-            current_question = utils.generate_next_question(response)
+            current_question = utils.generate_next_question(response, project, current_module)
             logger.info(f"다음 질문 생성됨: {current_question}")
             
             # 현재 상태 저장
             state = {
                 "iteration": iteration,
                 "current_question": current_question,
+                "current_module": current_module,
                 "conversation_history": conversation_history.history,
                 "summary": conversation_history.summary,
                 "last_updated": datetime.now().isoformat()

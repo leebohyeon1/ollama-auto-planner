@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
+from models import Project
 
 import config
 
@@ -139,12 +140,50 @@ class ConversationHistory:
         self.summary = ""
 
 # 다음 질문 생성
-def generate_next_question(response: str) -> str:
+def generate_next_question(response: str, project: Project, current_module: str = None) -> str:
     """AI 응답을 분석하여 다음 질문을 생성합니다."""
-    prompt = f"""
-다음 AI 응답을 분석하고, 기획서 구현을 더 발전시키기 위한 가장 관련성 있고 깊이 있는 후속 질문을 생성해주세요:
+    
+    # 현재 프로젝트의 코드 정보 수집 (이전과 동일)
+    current_code_info = ""
+    if project and project.components:
+        for component in project.components:
+            current_code_info += f"\n## 모듈: {component.name}\n"
+            current_code_info += f"설명: {component.description}\n"
+            
+            for feature in component.features:
+                current_code_info += f"\n### 기능: {feature.name}\n"
+                current_code_info += f"설명: {feature.description}\n"
+                
+                for snippet in feature.code_snippets:
+                    current_code_info += f"\n```{snippet.language}\n{snippet.code}\n```\n"
+    
+    if current_module is None:
+        prompt = f"""
+다음 AI 응답과 현재까지 개발된 코드를 분석하여, 기획서에 따라 추가로 개발이 필요한 부분을 파악하고 구체적인 질문을 생성해주세요.
 
+# 현재까지 개발된 코드:
+{current_code_info if current_code_info else "아직 개발된 코드가 없습니다."}
+
+# 마지막 응답:
 {response}
+
+기획서와 현재 개발 상태를 고려하여, 다음으로 개발해야 할 모듈이나 기능에 관한 구체적인 질문을 생성해주세요.
+기획서에 부족하거나 모호한 부분이 있다면, 그 부분을 명확히 하거나 필요한 세부 사항을 추가하는 질문도 좋습니다.
+
+질문:"""
+    else:
+        prompt = f"""
+다음 AI 응답은 '{current_module}' 모듈 개발에 관한 내용입니다.
+현재까지 개발된 코드를 분석하고, 이 모듈을 완성하기 위해 필요한 추가 기능이나 개선점에 관한 구체적인 질문을 생성해주세요.
+
+# 현재까지 개발된 코드:
+{current_code_info if current_code_info else "아직 개발된 코드가 없습니다."}
+
+# 마지막 응답:
+{response}
+
+기획서와 현재 개발 상태를 고려하여, '{current_module}' 모듈을 더 발전시키거나 다른 필요한 모듈로 넘어가기 위한 구체적인 질문을 생성해주세요.
+기획서에 명시되지 않았거나 모호한 부분에 대해서는 적절한 가정을 제안하거나 명확히 하는 질문도 포함해주세요.
 
 질문:"""
     
